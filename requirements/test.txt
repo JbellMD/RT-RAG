@@ -1,0 +1,4 @@
+# Testing-specific dependencies (e.g., pytest, coverage)
+# Example:
+# pytest
+# pytest-cov

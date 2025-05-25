@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  rag-assistant:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data  # Mount the local data directory to /app/data in the container
+      # You might also want to mount your src for live-reloading during development:
+      # - ./src:/app/src
+    env_file:
+      - .env
+    # If you have a vector store or other persistent data that should live outside the container's lifecycle
+    # and not in the 'data' directory, you might define another volume here.
+    # For example, if 'vectorstore' directory should persist:
+    #  - ./vectorstore:/app/vectorstore

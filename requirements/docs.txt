@@ -1,0 +1,4 @@
+# Documentation-specific dependencies (e.g., sphinx, mkdocs)
+# Example:
+# sphinx
+# sphinx-rtd-theme

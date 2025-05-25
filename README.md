@@ -1,122 +1,276 @@
-# RAG-Powered Question-Answering Assistant with Chat UI
+# RT-RAG Assistant
 
-This project is a question-answering assistant that uses Retrieval-Augmented Generation (RAG) to pull answers from a custom document set. It features a Python-based FastAPI backend and a React frontend for a user-friendly chat interface.
+[![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) <!-- Update if you chose a different license -->
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](.pre-commit-config.yaml)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![GitHub Actions CI](https://github.com/JbellMD/RT-RAG/actions/workflows/python-app.yml/badge.svg)](https://github.com/JbellMD/RT-RAG/actions/workflows/python-app.yml) <!-- Replace JbellMD/RT-RAG with your actual repo path -->
 
-## Project Overview
+**A Retrieval Augmented Generation (RAG) based assistant for querying your documents.**
 
-The assistant uses LangChain to create a pipeline that includes:
-- Document ingestion and processing (PDFs, text files).
-- Text splitting and embedding generation (using OpenAI).
-- Vector store creation and retrieval (using FAISS).
-- Conversational chain management with memory.
-- A FastAPI backend to serve the RAG chain via an API.
-- A React frontend providing a chat interface to interact with the assistant.
+This project provides a robust framework for building and deploying a RAG assistant. It allows users to ingest documents, create a searchable vector store, and query these documents using a natural language interface, leveraging large language models for response generation.
 
-## Prerequisites
+## Table of Contents
 
-Before you begin, ensure you have the following installed:
-- Python (3.9+ recommended)
-- Node.js and npm (for the React frontend)
-- Pip (Python package installer)
-- Git
-- **Poppler**: Required for PDF processing by `UnstructuredPDFLoader`. Ensure its `bin` directory is in your system's PATH. (See `setup_windows.bat` for an example on Windows or install via your system's package manager on Linux/macOS).
-- **Tesseract OCR**: Also required by `UnstructuredPDFLoader` for OCR in PDFs. Ensure it's installed and its directory is in your system's PATH. (See `setup_windows.bat` or install via system package manager).
+- [RT-RAG Assistant](#rt-rag-assistant)
+  - [Table of Contents](#table-of-contents)
+  - [Features](#features)
+  - [Project Structure](#project-structure)
+  - [Installation](#installation)
+    - [Prerequisites](#prerequisites)
+    - [Cloning the Repository](#cloning-the-repository)
+    - [Setting up the Environment](#setting-up-the-environment)
+    - [Installing Dependencies](#installing-dependencies)
+    - [Environment Variables](#environment-variables)
+  - [Usage](#usage)
+    - [Running the API Server](#running-the-api-server)
+    - [Example API Interaction](#example-api-interaction)
+  - [Docker](#docker)
+    - [Building the Docker Image](#building-the-docker-image)
+    - [Running with Docker Compose](#running-with-docker-compose)
+  - [Testing](#testing)
+  - [Documentation](#documentation)
+  - [Methodology](#methodology)
+  - [Performance](#performance)
+  - [Contributing](#contributing)
+  - [License](#license)
+  - [Changelog](#changelog)
+  - [Citation](#citation)
+  - [Contact and Support](#contact-and-support)
 
-## Setup Instructions
+## Features
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repo-url>
-    cd RT-RAG
-    ```
+*   Document ingestion from various formats (JSON, PDF, TXT - extendable).
+*   Vector store creation and management using FAISS.
+*   OpenAI integration for embeddings and language model capabilities.
+*   FastAPI backend for serving the RAG assistant via a REST API.
+*   Structured for production-readiness, including Dockerization, CI, and comprehensive documentation setup.
 
-2.  **Create a virtual environment and activate it:**
-    ```bash
-    python -m venv venv
-    # On Windows
-    venv\Scripts\activate
-    # On macOS/Linux
-    source venv/bin/activate
-    ```
+## Project Structure
 
-3.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+A brief overview of the key directories:
 
-4.  **Set up environment variables:**
-    Create a `.env` file in the project root and add your API keys (e.g., OpenAI API key):
-    ```env
-    OPENAI_API_KEY="your_openai_api_key_here"
-    # KMP_DUPLICATE_LIB_OK="TRUE" # Add this if you encounter OpenMP issues
-    ```
-
-5.  **Add custom documents:**
-    Place your custom documents (e.g., `.txt`, `.pdf`, `.md` files) into the `data/` directory.
-
-## How to Run
-
-The application consists of two main parts: the FastAPI backend and the React frontend. You'll need to run them in separate terminals.
-
-### 1. Backend (FastAPI Server)
-
-   - Ensure your virtual environment is activated (`venv\Scripts\activate` or `source venv/bin/activate`).
-   - Make sure your `.env` file is correctly set up with your `OPENAI_API_KEY`.
-   - The first time you run, the RAG assistant will process documents in the `data/` directory and create a vector store. This might take some time depending on the number and size of your documents.
-
-   Navigate to the project root directory (`RT-RAG`) and run:
-   ```bash
-   python api_main.py
-   ```
-   The API server should start, typically on `http://127.0.0.1:8000`.
-
-### 2. Frontend (React App)
-
-   - Open a new terminal.
-   - Navigate to the React app directory:
-     ```bash
-     cd frontend-react
-     ```
-   - Install Node.js dependencies (if you haven't already):
-     ```bash
-     npm install
-     ```
-   - Start the React development server:
-     ```bash
-     npm start
-     ```
-   This will usually open the application automatically in your default web browser at `http://localhost:3000`.
-
-### Using the Application
-
-Once both the backend and frontend are running:
-1. Open your web browser and go to `http://localhost:3000` (or the URL provided by the `npm start` command).
-2. You should see the chat interface.
-3. Type your questions about the documents you placed in the `data/` folder and press Enter or click Send.
-4. The assistant will process your question and display the answer along with any relevant source document snippets.
-
-## CLI (Legacy)
-
-The original command-line interface can still be run (ensure your virtual environment is active and `.env` is set up):
-```bash
-python rag_assistant.py
+```
+RT-RAG/
+├── .github/            # GitHub Actions workflows and issue templates
+├── .vscode/            # VSCode settings (optional)
+├── data/
+│   ├── raw/            # Raw input data files
+│   └── processed/      # Processed data (e.g., cleaned, transformed)
+├── docs/               # Sphinx documentation source files
+├── frontend-react/     # React frontend (if applicable)
+├── requirements/       # Python dependency files (base, dev, test, docs)
+├── scripts/            # Utility scripts (e.g., setup, data processing)
+├── src/
+│   └── rt_rag/         # Main Python package for the RAG assistant
+│       ├── __init__.py
+│       ├── api_main.py   # FastAPI application
+│       └── rag_assistant.py # Core RAG logic
+├── tests/
+│   ├── unit/           # Unit tests
+│   └── integration/    # Integration tests
+├── vectorstore/        # FAISS vector store (or other persistent stores)
+├── .env                # Environment variables (local, not committed)
+├── .env.example        # Example environment variables
+├── .gitignore
+├── .pre-commit-config.yaml # Pre-commit hook configurations
+├── CHANGELOG.md
+├── CODE_OF_CONDUCT.md
+├── CONTRIBUTING.md
+├── Dockerfile
+├── docker-compose.yml
+├── LICENSE
+├── pyproject.toml      # Project metadata and build system configuration
+├── README.md           # This file
+└── setup.py            # Setup script for packaging
 ```
 
-This README provides a comprehensive guide to setting up and running the RAG assistant.
-If you encounter any issues, please check the log files (`rag_assistant.log`) or console output for errors.
+For more details, see the [Project Structure section in the documentation](./docs/project_structure.md) (once created).
 
-## Sample Inputs and Outputs
+## Installation
 
-(Examples to be added after testing)
+### Prerequisites
 
-### Example 1
+*   Python 3.9 or higher
+*   Git
+*   (Optional) Docker and Docker Compose
 
-**Question:** ...
+### Cloning the Repository
 
-**Answer:** ...
+```bash
+git clone https://github.com/JbellMD/RT-RAG.git # Replace with your repo URL
+cd RT-RAG
+```
 
-## Optional Enhancements
+### Setting up the Environment
 
-- Session-based memory
-- Intermediate reasoning steps (e.g., ReAct or CoT-style chaining)
-- Basic logging or observability
+It is highly recommended to use a virtual environment:
+
+```bash
+python -m venv venv
+# On Windows
+venv\Scripts\activate
+# On macOS/Linux
+source venv/bin/activate
+```
+
+### Installing Dependencies
+
+Install the core dependencies:
+
+```bash
+pip install -r requirements/base.txt
+```
+
+To install the package itself (e.g., for command-line tools or if other local packages depend on it):
+
+```bash
+pip install .
+```
+
+For development, you might also want to install development and testing dependencies:
+
+```bash
+pip install -r requirements/dev.txt
+pip install -r requirements/test.txt
+```
+
+### Environment Variables
+
+Copy the example environment file and populate it with your actual credentials and settings:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your details, especially `OPENAI_API_KEY`.
+
+## Usage
+
+### Running the API Server
+
+Once dependencies are installed and your `.env` file is configured, you can run the FastAPI application using Uvicorn:
+
+```bash
+uvicorn src.rt_rag.api_main:app --reload
+```
+
+This will typically start the server at `http://127.0.0.1:8000`.
+
+### Example API Interaction
+
+(Provide examples of how to interact with your API endpoints, e.g., using `curl` or a Python script with `requests`.)
+
+**Example: Querying the RAG assistant**
+
+```bash
+curl -X POST "http://127.0.0.1:8000/query/" \
+     -H "Content-Type: application/json" \
+     -d '{"query_text": "What are the main findings of project X?"}'
+```
+
+## Docker
+
+### Building the Docker Image
+
+To build the Docker image for this project:
+
+```bash
+docker build -t rt-rag-assistant .
+```
+
+### Running with Docker Compose
+
+Docker Compose simplifies running the application and any related services.
+
+```bash
+docker-compose up
+```
+
+This will build the image (if not already built) and start the `rag-assistant` service, making it available on port 8000.
+Your `.env` file will be used for environment variables within the container.
+
+## Testing
+
+To run the test suite (unit and integration tests):
+
+1.  Ensure you have test dependencies installed:
+    ```bash
+    pip install -r requirements/test.txt
+    ```
+2.  Run pytest from the root directory:
+    ```bash
+    pytest tests/
+    ```
+
+To include coverage reports:
+
+```bash
+pytest tests/ --cov=src/rt_rag --cov-report=html # or xml, term
+```
+
+## Documentation
+
+Comprehensive documentation is available and can be built using Sphinx.
+
+1.  Install documentation dependencies:
+    ```bash
+    pip install -r docs/requirements.txt
+    ```
+2.  Build the HTML documentation:
+    ```bash
+    cd docs
+    make html
+    ```
+3.  Open `docs/_build/html/index.html` in your browser.
+
+(Alternatively, link to your ReadTheDocs or GitHub Pages site if you deploy it there.)
+
+## Methodology
+
+This project implements a Retrieval Augmented Generation (RAG) pipeline. Key steps include:
+
+1.  **Document Loading**: Ingesting source documents.
+2.  **Text Splitting**: Breaking down documents into manageable chunks.
+3.  **Embedding Generation**: Converting text chunks into vector embeddings using models like OpenAI's.
+4.  **Vector Storage**: Storing embeddings in a FAISS vector store for efficient similarity search.
+5.  **Retrieval**: Given a user query, retrieve relevant document chunks from the vector store.
+6.  **Response Generation**: Feed the retrieved context and the original query to a large language model (LLM) to generate a coherent answer.
+
+More detailed information can be found in the [project documentation](./docs/introduction.md).
+
+## Performance
+
+(This section should be updated with performance metrics once available. Consider aspects like query latency, document ingestion speed, and resource utilization.)
+
+## Contributing
+
+Contributions are welcome! Please read our [Contributing Guidelines](./CONTRIBUTING.md) for details on our code of conduct, and the process for submitting pull requests to us.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details. <!-- Update if you chose a different license -->
+
+## Changelog
+
+See the [CHANGELOG.md](./CHANGELOG.md) for a history of changes to this project.
+
+## Citation
+
+If you use this project in your research or work, please consider citing it:
+
+```bibtex
+@software{yourusername_rt_rag_assistant_2024,
+  author = {Your Name/Organization},
+  title = {{RT-RAG Assistant}},
+  year = {2024},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/JbellMD/RT-RAG}} # Replace with your repo URL
+}
+```
+
+## Contact and Support
+
+*   If you have questions, encounter issues, or want to contribute, please open an issue on the [GitHub Issues page](https://github.com/JbellMD/RT-RAG/issues). <!-- Replace with your repo URL -->
+*   For other inquiries, contact [Your Name/Email] (optional).

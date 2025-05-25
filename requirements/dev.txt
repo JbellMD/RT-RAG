@@ -1,0 +1,5 @@
+# Development-specific dependencies (e.g., linters, formatters, debuggers)
+# Example:
+# black
+# flake8
+# mypy
