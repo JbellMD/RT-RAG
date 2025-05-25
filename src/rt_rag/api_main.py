@@ -92,7 +92,6 @@ async def ask_question(request: QuestionRequest):
     """
     Receives a question, gets an answer from the RAG chain, and returns it.
     """
-    global qa_chain
     logger.info(f"Received request for /ask: {request.question}")
 
     if qa_chain is None:
