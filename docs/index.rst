@@ -14,7 +14,7 @@ Welcome to RT-RAG Assistant's documentation!
    installation
    usage
    api
-   # Add other pages like tutorials, contributing, etc.
+   publication_evaluation_guide
 
 Indices and tables
 ==================
@@ -22,5 +22,3 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-
-.. mdinclude:: ../../README.md

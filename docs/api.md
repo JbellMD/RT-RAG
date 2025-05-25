@@ -6,7 +6,7 @@ This section details the API provided by the RT-RAG Assistant.
 
 For example, to include documentation for a module:
 
-```toctree
+```rst
 .. automodule:: rt_rag.api_main
    :members:
 
