@@ -65,7 +65,7 @@ class QuestionRequest(BaseModel):
 
 class AnswerResponse(BaseModel):
     answer: str
-    source_documents: list = []
+    sources: list = []
     session_id: Optional[str] = None # Changed to Optional[str]
 
 # --- RAG Chain Initialization --- 
@@ -109,19 +109,15 @@ async def ask_question(request: QuestionRequest):
         result = qa_chain.invoke({"question": request.question})
         
         answer = result.get('answer', "Sorry, I couldn't find an answer.")
-        sources = result.get('source_documents', [])
-        
-        formatted_sources = []
-        for doc in sources:
-            formatted_sources.append({
-                "content": doc.page_content,
-                "metadata": doc.metadata
-            })
+        source_documents = result.get("source_documents", [])
+        # Extract source filenames and ensure uniqueness
+        raw_sources = [doc.metadata.get("source", "Unknown source") for doc in source_documents]
+        unique_sources = sorted(list(set(raw_sources))) # Ensure uniqueness and consistent order
 
-        logger.info(f"Successfully processed question. Answer: {answer[:100]}...")
+        logger.info(f"Successfully processed question. Answer: {answer[:50]}...")
         return AnswerResponse(
             answer=answer, 
-            source_documents=formatted_sources, 
+            sources=unique_sources, 
             session_id=request.session_id
         )
     except Exception as e:

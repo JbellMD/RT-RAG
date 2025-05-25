@@ -3,6 +3,8 @@
 import sys
 import os
 import logging
+import json # Import the json module
+import shutil # Added for rmtree
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
@@ -35,7 +37,13 @@ except NameError: # Fallback if logger isn't fully set up this early
         print("WARNING: Tesseract's directory does NOT seem to be in the Python script's PATH!")
 
 from dotenv import load_dotenv
-from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader, TextLoader, UnstructuredPDFLoader
+from langchain_community.document_loaders import (
+    DirectoryLoader, 
+    PyPDFLoader, 
+    TextLoader, 
+    UnstructuredPDFLoader
+)
+from langchain.docstore.document import Document # Ensure Document is imported
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -51,17 +59,7 @@ LOG_FILE = "rag_assistant.log"
 
 def setup_logging():
     """Configures logging for the application."""
-    # Basic config for early logging if not already set up by setup_logging
-    # This check ensures that if logging is configured elsewhere (e.g. by uvicorn), 
-    # we don't override it, but if not, we set up our desired config.
-    # However, for consistency, we might want to always apply our config
-    # or make it more sophisticated.
-    
-    # Get the root logger
     root_logger = logging.getLogger()
-    # Remove any existing handlers to avoid duplicate logs if this function is called multiple times
-    # or if uvicorn/fastapi also set up handlers.
-    # This can be aggressive; a more nuanced approach might be needed in complex apps.
     if root_logger.hasHandlers():
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
@@ -74,13 +72,7 @@ def setup_logging():
             logging.StreamHandler() # To also print to console
         ]
     )
-    # Test message to confirm logging setup
-    # logging.getLogger(__name__).info("Logging configured by setup_logging.")
 
-# Call setup_logging() to configure logging when this module is imported or run
-# We might want to call this more selectively, e.g., only in main() for CLI 
-# and let api_main.py call it explicitly.
-# For now, let's call it here so rag_assistant.py still logs correctly when run directly.
 setup_logging() 
 
 logger = logging.getLogger(__name__)
@@ -91,54 +83,101 @@ DATA_PATH = "data/"
 VECTORSTORE_PATH = "vectorstore/"
 
 def load_documents():
-    """Loads documents from the data directory."""
+    """Loads documents from the data directory, supporting PDF, TXT, and JSON files."""
     all_documents = []
-    pdf_files = [f for f in os.listdir(DATA_PATH) if f.lower().endswith(".pdf")]
-    txt_files = [f for f in os.listdir(DATA_PATH) if f.lower().endswith(".txt")]
+    
+    # Supported file types and their loaders
+    file_handlers = {
+        ".pdf": {
+            "loader_primary": UnstructuredPDFLoader,
+            "loader_fallback": PyPDFLoader,
+            "primary_kwargs": {"mode": "single", "strategy": "auto"},
+            "fallback_kwargs": {},
+            "log_msg_primary": "Loading {file} using UnstructuredPDFLoader...",
+            "log_msg_fallback": "Attempting to load {file} with PyPDFLoader as a fallback..."
+        },
+        ".txt": {
+            "loader_primary": TextLoader,
+            "primary_kwargs": {"encoding": 'utf-8'},
+            "log_msg_primary": "Loading {file} using TextLoader..."
+        }
+    }
 
-    for pdf_file in pdf_files:
-        file_path = os.path.join(DATA_PATH, pdf_file)
-        logger.info(f"Loading {pdf_file} using UnstructuredPDFLoader...")
-        try:
-            loader = UnstructuredPDFLoader(file_path, mode="single", strategy="auto") 
-            documents = loader.load()
-            logger.info(f"Successfully loaded {pdf_file} ({len(documents)} pages/docs).")
-            all_documents.extend(documents)
-        except Exception as e:
-            logger.error(f"Error loading {pdf_file} with UnstructuredPDFLoader: {e}")
-            logger.info(f"Attempting to load {pdf_file} with PyPDFLoader as a fallback...")
+    if not os.path.exists(DATA_PATH):
+        os.makedirs(DATA_PATH)
+        logger.info(f"Created data directory: {DATA_PATH}")
+
+    for filename in os.listdir(DATA_PATH):
+        file_ext = os.path.splitext(filename)[1].lower()
+        file_path = os.path.join(DATA_PATH, filename)
+
+        if file_ext in file_handlers:
+            handler_config = file_handlers[file_ext]
+            logger.info(handler_config["log_msg_primary"].format(file=filename))
             try:
-                loader = PyPDFLoader(file_path)
+                loader_class = handler_config["loader_primary"]
+                loader = loader_class(file_path, **handler_config["primary_kwargs"])
                 documents = loader.load()
-                logger.info(f"Successfully loaded {pdf_file} with PyPDFLoader ({len(documents)} pages/docs).")
+                logger.info(f"Successfully loaded {filename} ({len(documents)} docs).")
                 all_documents.extend(documents)
-            except Exception as e_pypdf:
-                logger.error(f"Error loading {pdf_file} with PyPDFLoader as fallback: {e_pypdf}")
-
-    for txt_file in txt_files:
-        file_path = os.path.join(DATA_PATH, txt_file)
-        logger.info(f"Loading {txt_file} using TextLoader...")
-        try:
-            loader = TextLoader(file_path, encoding='utf-8') 
-            documents = loader.load()
-            logger.info(f"Successfully loaded {txt_file} ({len(documents)} docs).")
-            all_documents.extend(documents)
-        except Exception as e:
-            logger.error(f"Error loading {txt_file}: {e}")
+            except Exception as e_primary:
+                logger.error(f"Error loading {filename} with {loader_class.__name__}: {e_primary}")
+                if "loader_fallback" in handler_config:
+                    logger.info(handler_config["log_msg_fallback"].format(file=filename))
+                    try:
+                        fallback_loader_class = handler_config["loader_fallback"]
+                        loader_fallback = fallback_loader_class(file_path, **handler_config.get("fallback_kwargs", {}))
+                        documents = loader_fallback.load()
+                        logger.info(f"Successfully loaded {filename} with {fallback_loader_class.__name__} ({len(documents)} docs).")
+                        all_documents.extend(documents)
+                    except Exception as e_fallback:
+                        logger.error(f"Error loading {filename} with {fallback_loader_class.__name__} as fallback: {e_fallback}")
+        elif file_ext == ".json": # Custom handling for JSON files
+            logger.info(f"Loading {filename} using custom JSON processing...")
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if isinstance(data, list): # Expecting a list of records
+                    for i, record in enumerate(data):
+                        content = record.get("publication_description", "") # Use 'publication_description'
+                        if not content:
+                            logger.warning(f"Record {i} in {filename} has no 'publication_description' or it's empty.")
+                        
+                        metadata = {
+                            "source": filename, # Keep original filename as source
+                            "title": record.get("title"),
+                            "authors": record.get("authors"),
+                            "year": record.get("year"),
+                            # Add other fields from 'record' as needed, e.g., record_index
+                            "record_index": i 
+                        }
+                        # Filter out None values from metadata for cleaner logs/usage
+                        metadata = {k: v for k, v in metadata.items() if v is not None}
+                        
+                        doc = Document(page_content=content, metadata=metadata)
+                        all_documents.append(doc)
+                    logger.info(f"Successfully processed {filename} ({len(data)} records).")
+                else:
+                    logger.warning(f"Skipping {filename}: Expected a list of JSON objects, but got {type(data)}.")
+            except json.JSONDecodeError as e_json_decode:
+                logger.error(f"Error decoding JSON from {filename}: {e_json_decode}")
+            except Exception as e_custom_json:
+                logger.error(f"Error processing {filename} with custom JSON handler: {e_custom_json}")
+        else:
+            logger.info(f"Skipping unsupported file type: {filename}")
 
     if not all_documents:
-        logger.warning(f"No documents found in {DATA_PATH}. Cannot proceed without data.")
-        if not os.path.exists(DATA_PATH):
-            os.makedirs(DATA_PATH)
-            logger.info(f"Created data directory: {DATA_PATH}")
+        logger.warning(f"No processable documents found in {DATA_PATH}. Cannot proceed without data.")
+        # Create a sample file only if the directory was truly empty of processable files
         with open(os.path.join(DATA_PATH, "sample_document.txt"), "w") as f:
-            f.write("This is a sample document. Replace it with your own data.")
+            f.write("This is a sample document. Replace it with your own data or add supported file types.")
         logger.info(f"A sample document 'sample_document.txt' has been created in {DATA_PATH}. Please add actual documents and restart.")
-        print(f"No documents found in {DATA_PATH}. A sample_document.txt has been created. Please add your documents and restart.")
-        return all_documents
+        print(f"No processable documents found in {DATA_PATH}. A sample_document.txt has been created. Please add your documents and restart.")
+        return all_documents # Return empty list
 
     logger.info(f"Total documents loaded: {len(all_documents)}")
     return all_documents
+
 
 def get_text_chunks(documents):
     if not documents:
@@ -176,17 +215,23 @@ def get_text_chunks(documents):
     return chunks
 
 def get_vector_store(text_chunks, embeddings):
-    """Creates or loads a FAISS vector store."""
-    if os.path.exists(VECTORSTORE_PATH) and os.listdir(VECTORSTORE_PATH):
-        logger.info(f"Loading existing vector store from {VECTORSTORE_PATH}")
-        vectorstore = FAISS.load_local(VECTORSTORE_PATH, embeddings, allow_dangerous_deserialization=True)
-        logger.info("Successfully loaded vector store.")
-    else:
-        logger.info("Creating new vector store...")
-        vectorstore = FAISS.from_documents(text_chunks, embeddings)
-        os.makedirs(VECTORSTORE_PATH, exist_ok=True)
-        vectorstore.save_local(VECTORSTORE_PATH)
-        logger.info(f"Vector store created and saved to {VECTORSTORE_PATH}")
+    """Creates a FAISS vector store, always rebuilding it."""
+    # Always rebuild the vector store to ensure it reflects current documents
+    logger.info(f"Attempting to remove existing vector store at {VECTORSTORE_PATH} if it exists...")
+    if os.path.exists(VECTORSTORE_PATH):
+        try:
+            shutil.rmtree(VECTORSTORE_PATH) # Remove the directory and its contents
+            logger.info(f"Successfully removed existing vector store directory: {VECTORSTORE_PATH}")
+        except OSError as e:
+            logger.error(f"Error removing directory {VECTORSTORE_PATH}: {e.strerror} - proceeding to create new.")
+            # If removal fails, FAISS might still overwrite or handle it, or fail later.
+            # For robustness, one might want to ensure the path is clear or use a new path.
+
+    logger.info("Creating new vector store...")
+    vectorstore = FAISS.from_documents(text_chunks, embeddings)
+    os.makedirs(VECTORSTORE_PATH, exist_ok=True) # Ensure directory exists
+    vectorstore.save_local(VECTORSTORE_PATH)
+    logger.info(f"Vector store created and saved to {VECTORSTORE_PATH}")
     return vectorstore
 
 def initialize_rag_chain():
@@ -236,7 +281,7 @@ def initialize_rag_chain():
         retriever=retriever,
         memory=memory,
         return_source_documents=True,
-        output_key='answer'
+        verbose=False  # Disable verbose output
     )
     logger.info("ConversationalRetrievalChain created successfully.")
     return qa_chain
