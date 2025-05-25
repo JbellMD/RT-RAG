@@ -6,6 +6,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware # To handle CORS for local development
 from pydantic import BaseModel
 import logging
+from typing import Optional # Import Optional
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 # Import the RAG chain initializer from your existing script
 from rag_assistant import initialize_rag_chain, setup_logging
@@ -23,6 +26,27 @@ app = FastAPI(
     version="0.1.0"
 )
 
+# --- Exception Handler for Validation Errors ---
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"Validation error for request: {request.method} {request.url}")
+    logger.error(f"Error details: {exc.errors()}") # This will print the detailed Pydantic errors
+    # You can customize the response if needed, but FastAPI's default is usually fine
+    # return JSONResponse(
+    #     status_code=422,
+    #     content={"detail": exc.errors()},
+    # )
+    # Re-raise to let FastAPI handle the default 422 response, or use the JSONResponse above
+    # For just logging, we can let the default handler do its work after logging.
+    # The default handler is part of Starlette, FastAPI's core.
+    # To ensure the client gets the standard 422, we can call the default handler explicitly
+    # or simply return what it would have returned.
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+    )
+
+
 # --- CORS Middleware --- 
 # Allows requests from your frontend (which will be on a different port)
 app.add_middleware(
@@ -37,12 +61,12 @@ app.add_middleware(
 # --- Pydantic Models for Request/Response --- 
 class QuestionRequest(BaseModel):
     question: str
-    session_id: str = None # Optional: for managing separate conversation histories
+    session_id: Optional[str] = None # Changed to Optional[str]
 
 class AnswerResponse(BaseModel):
     answer: str
     source_documents: list = []
-    session_id: str = None # To return the session_id if one was used/generated
+    session_id: Optional[str] = None # Changed to Optional[str]
 
 # --- RAG Chain Initialization --- 
 # We'll store the chain globally. 
