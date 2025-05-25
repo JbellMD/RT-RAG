@@ -8,9 +8,8 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
-from langchain.schema.runnable import RunnablePassthrough
-from langchain.schema.output_parser import StrOutputParser
+from langchain.memory import ConversationBufferMemory
+from langchain.chains import ConversationalRetrievalChain
 
 # Load environment variables from .env file
 load_dotenv()
@@ -33,13 +32,15 @@ VECTORSTORE_PATH = "faiss_index"
 
 def load_documents():
     """Loads documents from the data directory."""
-    # Supporting multiple file types
     loaders = {
         '.pdf': PyPDFLoader,
         '.txt': TextLoader,
-        # Add more loaders here if needed, e.g., for .md, .docx
     }
     all_documents = []
+    if not os.path.exists(DATA_PATH) or not os.listdir(DATA_PATH):
+        logger.warning(f"Data directory {DATA_PATH} is empty or does not exist.")
+        return all_documents
+        
     for filename in os.listdir(DATA_PATH):
         filepath = os.path.join(DATA_PATH, filename)
         file_ext = os.path.splitext(filename)[1].lower()
@@ -47,10 +48,7 @@ def load_documents():
             logger.info(f"Loading {filename}...")
             try:
                 loader_class = loaders[file_ext]
-                if file_ext == '.pdf': # PyPDFLoader takes filepath directly
-                    loader = loader_class(filepath)
-                else: # Other loaders might need different instantiation
-                    loader = loader_class(filepath)
+                loader = loader_class(filepath)
                 loaded_docs = loader.load()
                 all_documents.extend(loaded_docs)
                 logger.info(f"Successfully loaded {filename} ({len(loaded_docs)} pages/docs).")
@@ -86,70 +84,65 @@ def get_or_create_vectorstore(texts, embeddings):
 def main():
     """Main function to run the RAG assistant."""
     logger.info("RAG Assistant starting...")
-    # Check for OpenAI API key
     if not os.getenv("OPENAI_API_KEY"):
         logger.error("OPENAI_API_KEY not found. Please set it in the .env file.")
+        print("Error: OPENAI_API_KEY not found. Please create a .env file with your key.")
         return
 
     logger.info("Initializing RAG assistant components...")
 
-    # 1. Load documents
     documents = load_documents()
     if not documents:
-        logger.warning(f"No documents found in {DATA_PATH}. Please add some documents.")
-        # Create a dummy file to avoid errors if data/ is empty and to guide the user
+        logger.warning(f"No documents found in {DATA_PATH}. Cannot proceed without data.")
         if not os.path.exists(DATA_PATH):
             os.makedirs(DATA_PATH)
             logger.info(f"Created data directory: {DATA_PATH}")
         with open(os.path.join(DATA_PATH, "sample_document.txt"), "w") as f:
             f.write("This is a sample document. Replace it with your own data.")
-        logger.info(f"A sample document 'sample_document.txt' has been created in {DATA_PATH}. Please add actual documents.")
+        logger.info(f"A sample document 'sample_document.txt' has been created in {DATA_PATH}. Please add actual documents and restart.")
+        print(f"No documents found in {DATA_PATH}. A sample_document.txt has been created. Please add your documents and restart.")
         return
 
-    # 2. Split documents into chunks
     texts = split_documents(documents)
     if not texts:
         logger.error("No text could be extracted from the documents. Check document content and loaders.")
+        print("Error: No text could be extracted from documents.")
         return
 
-    # 3. Initialize embeddings model
     logger.info("Initializing OpenAI embeddings model...")
     embeddings = OpenAIEmbeddings()
 
-    # 4. Create or load vector store
     vectorstore = get_or_create_vectorstore(texts, embeddings)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
     logger.info("Retriever created from vector store.")
 
-    # 5. Define prompt template
-    template = """
-    You are an assistant for question-answering tasks.
-    Use the following pieces of retrieved context to answer the question.
-    If you don't know the answer, just say that you don't know. Don't try to make up an answer.
-    Use three sentences maximum and keep the answer concise.
-
-    Context: {context}
-    Question: {question}
-    Helpful Answer:
-    """
-    prompt = ChatPromptTemplate.from_template(template)
-
-    # 6. Initialize LLM
+    # Initialize LLM
     llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
     logger.info(f"ChatOpenAI LLM initialized with model gpt-3.5-turbo.")
 
-    # 7. Create RAG chain
-    rag_chain = (
-        {"context": retriever, "question": RunnablePassthrough()}
-        | prompt
-        | llm
-        | StrOutputParser()
+    # Setup memory
+    memory = ConversationBufferMemory(
+        memory_key='chat_history', 
+        return_messages=True, 
+        output_key='answer' # Ensure the LLM's response is stored correctly in memory
     )
-    logger.info("RAG chain created successfully.")
+    logger.info("ConversationBufferMemory initialized.")
+
+    # Create ConversationalRetrievalChain
+    # This chain will use the LLM to condense the question and chat history into a standalone question,
+    # then retrieve documents, and finally use the LLM again to answer based on context and history.
+    qa_chain = ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        retriever=retriever,
+        memory=memory,
+        return_source_documents=True, # Optionally return source documents
+        output_key='answer' # Ensure the chain's final output key is 'answer'
+    )
+    logger.info("ConversationalRetrievalChain created successfully.")
 
     logger.info("RAG Assistant is ready. CLI started. Type 'exit' to quit.")
+    print("\nRAG Assistant with session memory is ready. Type 'exit' to quit.")
 
-    # 8. Simple CLI for interaction
     while True:
         user_question = input("\nAsk a question: ")
         if user_question.lower() == 'exit':
@@ -160,13 +153,28 @@ def main():
 
         logger.info(f"Received question: '{user_question}'")
         try:
-            logger.info("Invoking RAG chain...")
-            answer = rag_chain.invoke(user_question)
+            logger.info("Invoking ConversationalRetrievalChain...")
+            # The chain manages chat_history internally via the memory object.
+            # We just need to pass the question.
+            result = qa_chain.invoke({"question": user_question})
+            answer = result.get('answer', "Sorry, I couldn't find an answer.")
+            
             logger.info(f"Retrieved answer: '{answer[:100]}...'" if len(answer) > 100 else f"Retrieved answer: '{answer}'")
+            
             print("\nAnswer:")
             print(answer)
+
+            # Optionally, print source documents if you want to see them
+            if result.get('source_documents'):
+                logger.info(f"Retrieved {len(result['source_documents'])} source documents.")
+                # print("\nSources:")
+                # for i, doc in enumerate(result['source_documents']):
+                #     print(f"Source {i+1}: {doc.metadata.get('source', 'N/A')} (Page: {doc.metadata.get('page', 'N/A')})")
+                #     # print(doc.page_content[:200] + "...") # Print snippet of source
+
         except Exception as e:
             logger.error(f"Error processing question '{user_question}': {e}", exc_info=True)
+            print(f"Error: Could not process your question. {e}")
 
 if __name__ == "__main__":
     main()
