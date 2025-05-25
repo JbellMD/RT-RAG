@@ -19,3 +19,6 @@ env/
 
 # FAISS index
 faiss_index/
+
+# Log files
+*.log

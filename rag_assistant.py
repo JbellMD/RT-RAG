@@ -1,6 +1,7 @@
 # Main script for the RAG-powered Question-Answering Assistant
 
 import os
+import logging
 from dotenv import load_dotenv
 from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader, TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -13,6 +14,19 @@ from langchain.schema.output_parser import StrOutputParser
 
 # Load environment variables from .env file
 load_dotenv()
+
+# --- Logging Setup ---
+LOG_FILE = "rag_assistant.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler() # To also print to console
+    ]
+)
+logger = logging.getLogger(__name__)
+# --- End Logging Setup ---
 
 DATA_PATH = "data/"
 VECTORSTORE_PATH = "faiss_index"
@@ -30,75 +44,82 @@ def load_documents():
         filepath = os.path.join(DATA_PATH, filename)
         file_ext = os.path.splitext(filename)[1].lower()
         if file_ext in loaders:
-            print(f"Loading {filename}...")
+            logger.info(f"Loading {filename}...")
             try:
                 loader_class = loaders[file_ext]
                 if file_ext == '.pdf': # PyPDFLoader takes filepath directly
                     loader = loader_class(filepath)
                 else: # Other loaders might need different instantiation
                     loader = loader_class(filepath)
-                all_documents.extend(loader.load())
+                loaded_docs = loader.load()
+                all_documents.extend(loaded_docs)
+                logger.info(f"Successfully loaded {filename} ({len(loaded_docs)} pages/docs).")
             except Exception as e:
-                print(f"Error loading {filename}: {e}")
+                logger.error(f"Error loading {filename}: {e}", exc_info=True)
         else:
-            print(f"Skipping {filename}, unsupported file type.")
+            logger.warning(f"Skipping {filename}, unsupported file type: {file_ext}")
+    logger.info(f"Total documents loaded: {len(all_documents)}")
     return all_documents
 
 def split_documents(documents):
     """Splits documents into smaller chunks."""
+    logger.info(f"Splitting {len(documents)} documents into chunks...")
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     texts = text_splitter.split_documents(documents)
+    logger.info(f"Created {len(texts)} text chunks.")
     return texts
 
 def get_or_create_vectorstore(texts, embeddings):
     """Creates or loads a FAISS vector store."""
     if os.path.exists(VECTORSTORE_PATH) and os.listdir(VECTORSTORE_PATH):
-        print(f"Loading existing vector store from {VECTORSTORE_PATH}")
+        logger.info(f"Loading existing vector store from {VECTORSTORE_PATH}")
         vectorstore = FAISS.load_local(VECTORSTORE_PATH, embeddings, allow_dangerous_deserialization=True)
+        logger.info("Successfully loaded vector store.")
     else:
-        print("Creating new vector store...")
+        logger.info("Creating new vector store...")
         vectorstore = FAISS.from_documents(texts, embeddings)
         os.makedirs(VECTORSTORE_PATH, exist_ok=True)
         vectorstore.save_local(VECTORSTORE_PATH)
-        print(f"Vector store saved to {VECTORSTORE_PATH}")
+        logger.info(f"Vector store created and saved to {VECTORSTORE_PATH}")
     return vectorstore
 
 def main():
     """Main function to run the RAG assistant."""
+    logger.info("RAG Assistant starting...")
     # Check for OpenAI API key
     if not os.getenv("OPENAI_API_KEY"):
-        print("Error: OPENAI_API_KEY not found in environment variables.")
-        print("Please create a .env file in the project root and add your OpenAI API key:")
-        print("OPENAI_API_KEY='your_openai_api_key_here'")
+        logger.error("OPENAI_API_KEY not found. Please set it in the .env file.")
         return
 
-    print("Initializing RAG assistant...")
+    logger.info("Initializing RAG assistant components...")
 
     # 1. Load documents
     documents = load_documents()
     if not documents:
-        print(f"No documents found in {DATA_PATH}. Please add some documents to query.")
+        logger.warning(f"No documents found in {DATA_PATH}. Please add some documents.")
         # Create a dummy file to avoid errors if data/ is empty and to guide the user
         if not os.path.exists(DATA_PATH):
             os.makedirs(DATA_PATH)
+            logger.info(f"Created data directory: {DATA_PATH}")
         with open(os.path.join(DATA_PATH, "sample_document.txt"), "w") as f:
             f.write("This is a sample document. Replace it with your own data.")
-        print(f"A sample document 'sample_document.txt' has been created in {DATA_PATH}.")
-        print("Please add your actual documents and restart the assistant.")
+        logger.info(f"A sample document 'sample_document.txt' has been created in {DATA_PATH}. Please add actual documents.")
         return
 
     # 2. Split documents into chunks
     texts = split_documents(documents)
     if not texts:
-        print("No text could be extracted from the documents. Please check your document content.")
+        logger.error("No text could be extracted from the documents. Check document content and loaders.")
         return
 
     # 3. Initialize embeddings model
+    logger.info("Initializing OpenAI embeddings model...")
     embeddings = OpenAIEmbeddings()
 
     # 4. Create or load vector store
     vectorstore = get_or_create_vectorstore(texts, embeddings)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+    logger.info("Retriever created from vector store.")
 
     # 5. Define prompt template
     template = """
@@ -115,6 +136,7 @@ def main():
 
     # 6. Initialize LLM
     llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
+    logger.info(f"ChatOpenAI LLM initialized with model gpt-3.5-turbo.")
 
     # 7. Create RAG chain
     rag_chain = (
@@ -123,24 +145,29 @@ def main():
         | llm
         | StrOutputParser()
     )
+    logger.info("RAG chain created successfully.")
 
-    print("\nRAG Assistant is ready. Type 'exit' to quit.")
+    logger.info("RAG Assistant is ready. CLI started. Type 'exit' to quit.")
 
     # 8. Simple CLI for interaction
     while True:
         user_question = input("\nAsk a question: ")
         if user_question.lower() == 'exit':
+            logger.info("User typed 'exit'. Shutting down.")
             break
         if not user_question.strip():
             continue
 
+        logger.info(f"Received question: '{user_question}'")
         try:
-            print("Thinking...")
+            logger.info("Invoking RAG chain...")
             answer = rag_chain.invoke(user_question)
+            logger.info(f"Retrieved answer: '{answer[:100]}...'" if len(answer) > 100 else f"Retrieved answer: '{answer}'")
             print("\nAnswer:")
             print(answer)
         except Exception as e:
-            print(f"Error processing question: {e}")
+            logger.error(f"Error processing question '{user_question}': {e}", exc_info=True)
 
 if __name__ == "__main__":
     main()
+    logger.info("RAG Assistant finished.")
