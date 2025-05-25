@@ -1,9 +1,41 @@
 # Main script for the RAG-powered Question-Answering Assistant
 
+import sys
 import os
 import logging
+
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+
+# Print PATH for debugging Poppler/Tesseract issues
+logger = logging.getLogger(__name__) # Ensure logger is available early
+# Basic config for early logging if not already set up by setup_logging
+if not logging.getLogger().hasHandlers():
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
+
+path_env_var = os.environ.get('PATH', 'PATH environment variable not found.')
+# Split the PATH for better readability in logs, especially if it's very long
+path_directories = path_env_var.split(os.pathsep)
+
+# Log the PATH. Using logger if available, otherwise print.
+try:
+    logger.info("Python script sees the following PATH components:")
+    for i, p_dir in enumerate(path_directories):
+        logger.info(f"  PATH[{i}]: {p_dir}")
+    if not any("poppler" in p.lower() for p in path_directories):
+        logger.warning("Poppler's directory does NOT seem to be in the Python script's PATH!")
+    if not any("tesseract" in p.lower() for p in path_directories):
+        logger.warning("Tesseract's directory does NOT seem to be in the Python script's PATH!")
+except NameError: # Fallback if logger isn't fully set up this early
+    print("Python script sees the following PATH components:")
+    for i, p_dir in enumerate(path_directories):
+        print(f"  PATH[{i}]: {p_dir}")
+    if not any("poppler" in p.lower() for p in path_directories):
+        print("WARNING: Poppler's directory does NOT seem to be in the Python script's PATH!")
+    if not any("tesseract" in p.lower() for p in path_directories):
+        print("WARNING: Tesseract's directory does NOT seem to be in the Python script's PATH!")
+
 from dotenv import load_dotenv
-from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader, TextLoader
+from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader, TextLoader, UnstructuredPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -28,46 +60,94 @@ logger = logging.getLogger(__name__)
 # --- End Logging Setup ---
 
 DATA_PATH = "data/"
-VECTORSTORE_PATH = "faiss_index"
+VECTORSTORE_PATH = "vectorstore/"
 
 def load_documents():
     """Loads documents from the data directory."""
-    loaders = {
-        '.pdf': PyPDFLoader,
-        '.txt': TextLoader,
-    }
     all_documents = []
-    if not os.path.exists(DATA_PATH) or not os.listdir(DATA_PATH):
-        logger.warning(f"Data directory {DATA_PATH} is empty or does not exist.")
-        return all_documents
-        
-    for filename in os.listdir(DATA_PATH):
-        filepath = os.path.join(DATA_PATH, filename)
-        file_ext = os.path.splitext(filename)[1].lower()
-        if file_ext in loaders:
-            logger.info(f"Loading {filename}...")
+    pdf_files = [f for f in os.listdir(DATA_PATH) if f.lower().endswith(".pdf")]
+    txt_files = [f for f in os.listdir(DATA_PATH) if f.lower().endswith(".txt")]
+
+    for pdf_file in pdf_files:
+        file_path = os.path.join(DATA_PATH, pdf_file)
+        logger.info(f"Loading {pdf_file} using UnstructuredPDFLoader...")
+        try:
+            loader = UnstructuredPDFLoader(file_path, mode="single", strategy="auto") 
+            documents = loader.load()
+            logger.info(f"Successfully loaded {pdf_file} ({len(documents)} pages/docs).")
+            all_documents.extend(documents)
+        except Exception as e:
+            logger.error(f"Error loading {pdf_file} with UnstructuredPDFLoader: {e}")
+            logger.info(f"Attempting to load {pdf_file} with PyPDFLoader as a fallback...")
             try:
-                loader_class = loaders[file_ext]
-                loader = loader_class(filepath)
-                loaded_docs = loader.load()
-                all_documents.extend(loaded_docs)
-                logger.info(f"Successfully loaded {filename} ({len(loaded_docs)} pages/docs).")
-            except Exception as e:
-                logger.error(f"Error loading {filename}: {e}", exc_info=True)
-        else:
-            logger.warning(f"Skipping {filename}, unsupported file type: {file_ext}")
+                loader = PyPDFLoader(file_path)
+                documents = loader.load()
+                logger.info(f"Successfully loaded {pdf_file} with PyPDFLoader ({len(documents)} pages/docs).")
+                all_documents.extend(documents)
+            except Exception as e_pypdf:
+                logger.error(f"Error loading {pdf_file} with PyPDFLoader as fallback: {e_pypdf}")
+
+    for txt_file in txt_files:
+        file_path = os.path.join(DATA_PATH, txt_file)
+        logger.info(f"Loading {txt_file} using TextLoader...")
+        try:
+            loader = TextLoader(file_path, encoding='utf-8') 
+            documents = loader.load()
+            logger.info(f"Successfully loaded {txt_file} ({len(documents)} docs).")
+            all_documents.extend(documents)
+        except Exception as e:
+            logger.error(f"Error loading {txt_file}: {e}")
+
+    if not all_documents:
+        logger.warning(f"No documents found in {DATA_PATH}. Cannot proceed without data.")
+        if not os.path.exists(DATA_PATH):
+            os.makedirs(DATA_PATH)
+            logger.info(f"Created data directory: {DATA_PATH}")
+        with open(os.path.join(DATA_PATH, "sample_document.txt"), "w") as f:
+            f.write("This is a sample document. Replace it with your own data.")
+        logger.info(f"A sample document 'sample_document.txt' has been created in {DATA_PATH}. Please add actual documents and restart.")
+        print(f"No documents found in {DATA_PATH}. A sample_document.txt has been created. Please add your documents and restart.")
+        return all_documents
+
     logger.info(f"Total documents loaded: {len(all_documents)}")
     return all_documents
 
-def split_documents(documents):
-    """Splits documents into smaller chunks."""
-    logger.info(f"Splitting {len(documents)} documents into chunks...")
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    texts = text_splitter.split_documents(documents)
-    logger.info(f"Created {len(texts)} text chunks.")
-    return texts
+def get_text_chunks(documents):
+    if not documents:
+        logger.warning("No documents provided to get_text_chunks.")
+        return []
 
-def get_or_create_vectorstore(texts, embeddings):
+    logger.info(f"Inspecting content of {len(documents)} documents before splitting:")
+    for i, doc in enumerate(documents[:3]): 
+        content_snippet = doc.page_content[:200].strip() 
+        page_num = doc.metadata.get('page', 'N/A')
+        source_file = doc.metadata.get('source', 'N/A')
+        if not content_snippet:
+            logger.info(f"  Document {i} (source: {source_file}, page: {page_num}) appears to have no extractable text content.")
+        else:
+            logger.info(f"  Document {i} (source: {source_file}, page: {page_num}) content snippet: '{content_snippet}...'" )
+        
+        if i == 0 and not content_snippet:
+            logger.warning("The first document page appears empty. This might indicate a problem with PDF text extraction (e.g., image-based PDF or complex encoding).")
+
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+        length_function=len
+    )
+
+    docs_with_content = [doc for doc in documents if doc.page_content and doc.page_content.strip()]
+
+    if not docs_with_content:
+        logger.warning("No documents with actual text content found to split after filtering.")
+        return []
+        
+    logger.info(f"Splitting {len(docs_with_content)} documents with actual content into chunks...")
+    chunks = text_splitter.split_documents(docs_with_content)
+    logger.info(f"Created {len(chunks)} text chunks.")
+    return chunks
+
+def get_vector_store(text_chunks, embeddings):
     """Creates or loads a FAISS vector store."""
     if os.path.exists(VECTORSTORE_PATH) and os.listdir(VECTORSTORE_PATH):
         logger.info(f"Loading existing vector store from {VECTORSTORE_PATH}")
@@ -75,7 +155,7 @@ def get_or_create_vectorstore(texts, embeddings):
         logger.info("Successfully loaded vector store.")
     else:
         logger.info("Creating new vector store...")
-        vectorstore = FAISS.from_documents(texts, embeddings)
+        vectorstore = FAISS.from_documents(text_chunks, embeddings)
         os.makedirs(VECTORSTORE_PATH, exist_ok=True)
         vectorstore.save_local(VECTORSTORE_PATH)
         logger.info(f"Vector store created and saved to {VECTORSTORE_PATH}")
@@ -94,17 +174,10 @@ def main():
     documents = load_documents()
     if not documents:
         logger.warning(f"No documents found in {DATA_PATH}. Cannot proceed without data.")
-        if not os.path.exists(DATA_PATH):
-            os.makedirs(DATA_PATH)
-            logger.info(f"Created data directory: {DATA_PATH}")
-        with open(os.path.join(DATA_PATH, "sample_document.txt"), "w") as f:
-            f.write("This is a sample document. Replace it with your own data.")
-        logger.info(f"A sample document 'sample_document.txt' has been created in {DATA_PATH}. Please add actual documents and restart.")
-        print(f"No documents found in {DATA_PATH}. A sample_document.txt has been created. Please add your documents and restart.")
         return
 
-    texts = split_documents(documents)
-    if not texts:
+    text_chunks = get_text_chunks(documents)
+    if not text_chunks:
         logger.error("No text could be extracted from the documents. Check document content and loaders.")
         print("Error: No text could be extracted from documents.")
         return
@@ -112,7 +185,7 @@ def main():
     logger.info("Initializing OpenAI embeddings model...")
     embeddings = OpenAIEmbeddings()
 
-    vectorstore = get_or_create_vectorstore(texts, embeddings)
+    vectorstore = get_vector_store(text_chunks, embeddings)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
     logger.info("Retriever created from vector store.")
 
@@ -124,19 +197,17 @@ def main():
     memory = ConversationBufferMemory(
         memory_key='chat_history', 
         return_messages=True, 
-        output_key='answer' # Ensure the LLM's response is stored correctly in memory
+        output_key='answer' 
     )
     logger.info("ConversationBufferMemory initialized.")
 
     # Create ConversationalRetrievalChain
-    # This chain will use the LLM to condense the question and chat history into a standalone question,
-    # then retrieve documents, and finally use the LLM again to answer based on context and history.
     qa_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
         retriever=retriever,
         memory=memory,
-        return_source_documents=True, # Optionally return source documents
-        output_key='answer' # Ensure the chain's final output key is 'answer'
+        return_source_documents=True, 
+        output_key='answer' 
     )
     logger.info("ConversationalRetrievalChain created successfully.")
 
@@ -154,8 +225,6 @@ def main():
         logger.info(f"Received question: '{user_question}'")
         try:
             logger.info("Invoking ConversationalRetrievalChain...")
-            # The chain manages chat_history internally via the memory object.
-            # We just need to pass the question.
             result = qa_chain.invoke({"question": user_question})
             answer = result.get('answer', "Sorry, I couldn't find an answer.")
             
@@ -164,7 +233,6 @@ def main():
             print("\nAnswer:")
             print(answer)
 
-            # Optionally, print source documents if you want to see them
             if result.get('source_documents'):
                 logger.info(f"Retrieved {len(result['source_documents'])} source documents.")
                 # print("\nSources:")
