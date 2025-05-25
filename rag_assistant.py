@@ -48,17 +48,45 @@ load_dotenv()
 
 # --- Logging Setup ---
 LOG_FILE = "rag_assistant.log"
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler() # To also print to console
-    ]
-)
+
+def setup_logging():
+    """Configures logging for the application."""
+    # Basic config for early logging if not already set up by setup_logging
+    # This check ensures that if logging is configured elsewhere (e.g. by uvicorn), 
+    # we don't override it, but if not, we set up our desired config.
+    # However, for consistency, we might want to always apply our config
+    # or make it more sophisticated.
+    
+    # Get the root logger
+    root_logger = logging.getLogger()
+    # Remove any existing handlers to avoid duplicate logs if this function is called multiple times
+    # or if uvicorn/fastapi also set up handlers.
+    # This can be aggressive; a more nuanced approach might be needed in complex apps.
+    if root_logger.hasHandlers():
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
+        handlers=[
+            logging.FileHandler(LOG_FILE),
+            logging.StreamHandler() # To also print to console
+        ]
+    )
+    # Test message to confirm logging setup
+    # logging.getLogger(__name__).info("Logging configured by setup_logging.")
+
+# Call setup_logging() to configure logging when this module is imported or run
+# We might want to call this more selectively, e.g., only in main() for CLI 
+# and let api_main.py call it explicitly.
+# For now, let's call it here so rag_assistant.py still logs correctly when run directly.
+setup_logging() 
+
 logger = logging.getLogger(__name__)
 # --- End Logging Setup ---
 
+# --- Constants ---
 DATA_PATH = "data/"
 VECTORSTORE_PATH = "vectorstore/"
 
@@ -161,31 +189,32 @@ def get_vector_store(text_chunks, embeddings):
         logger.info(f"Vector store created and saved to {VECTORSTORE_PATH}")
     return vectorstore
 
-def main():
-    """Main function to run the RAG assistant."""
-    logger.info("RAG Assistant starting...")
+def initialize_rag_chain():
+    """Initializes all components of the RAG chain and returns the chain."""
+    logger.info("Initializing RAG assistant components...")
     if not os.getenv("OPENAI_API_KEY"):
         logger.error("OPENAI_API_KEY not found. Please set it in the .env file.")
         print("Error: OPENAI_API_KEY not found. Please create a .env file with your key.")
-        return
-
-    logger.info("Initializing RAG assistant components...")
+        return None
 
     documents = load_documents()
     if not documents:
         logger.warning(f"No documents found in {DATA_PATH}. Cannot proceed without data.")
-        return
+        return None
 
     text_chunks = get_text_chunks(documents)
     if not text_chunks:
         logger.error("No text could be extracted from the documents. Check document content and loaders.")
         print("Error: No text could be extracted from documents.")
-        return
+        return None
 
     logger.info("Initializing OpenAI embeddings model...")
     embeddings = OpenAIEmbeddings()
 
     vectorstore = get_vector_store(text_chunks, embeddings)
+    if not vectorstore:
+        logger.error("Failed to create or load vector store.")
+        return None
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
     logger.info("Retriever created from vector store.")
 
@@ -195,9 +224,9 @@ def main():
 
     # Setup memory
     memory = ConversationBufferMemory(
-        memory_key='chat_history', 
-        return_messages=True, 
-        output_key='answer' 
+        memory_key='chat_history',
+        return_messages=True,
+        output_key='answer'
     )
     logger.info("ConversationBufferMemory initialized.")
 
@@ -206,10 +235,21 @@ def main():
         llm=llm,
         retriever=retriever,
         memory=memory,
-        return_source_documents=True, 
-        output_key='answer' 
+        return_source_documents=True,
+        output_key='answer'
     )
     logger.info("ConversationalRetrievalChain created successfully.")
+    return qa_chain
+
+def main():
+    """Main function to run the RAG assistant CLI."""
+    logger.info("RAG Assistant CLI starting...")
+    
+    qa_chain = initialize_rag_chain()
+
+    if not qa_chain:
+        logger.error("Failed to initialize RAG chain. Exiting CLI.")
+        return
 
     logger.info("RAG Assistant is ready. CLI started. Type 'exit' to quit.")
     print("\nRAG Assistant with session memory is ready. Type 'exit' to quit.")

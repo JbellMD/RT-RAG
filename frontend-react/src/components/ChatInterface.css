@@ -1,0 +1,157 @@
+/* src/components/ChatInterface.css */
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 40px); /* Adjust based on your app's header/footer */
+    max-width: 800px;
+    margin: 20px auto;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+}
+
+.chat-header {
+    background-color: #007bff;
+    color: white;
+    padding: 15px;
+    text-align: center;
+    font-size: 1.2em;
+}
+
+.chat-messages {
+    flex-grow: 1;
+    padding: 20px;
+    overflow-y: auto;
+    background-color: #f9f9f9;
+    display: flex;
+    flex-direction: column;
+}
+
+.message {
+    margin-bottom: 15px;
+    display: flex;
+    flex-direction: column;
+}
+
+.message-bubble {
+    max-width: 70%;
+    padding: 10px 15px;
+    border-radius: 18px;
+    line-height: 1.4;
+}
+
+.message.user .message-bubble {
+    background-color: #007bff;
+    color: white;
+    align-self: flex-end;
+    border-bottom-right-radius: 5px;
+}
+
+.message.assistant .message-bubble {
+    background-color: #e9e9eb;
+    color: #333;
+    align-self: flex-start;
+    border-bottom-left-radius: 5px;
+}
+
+.message.error-message .message-bubble {
+    background-color: #ffebee; /* Light red for errors */
+    color: #c62828; /* Darker red text for errors */
+    border: 1px solid #ef9a9a;
+}
+
+.message-bubble p {
+    margin: 0;
+    word-wrap: break-word;
+}
+
+.message-sources {
+    margin-top: 8px;
+    font-size: 0.8em;
+    color: #555; /* Adjusted for assistant bubble */
+}
+
+.message.user .message-sources {
+    color: #f0f0f0; /* Lighter for user bubble if sources were shown there */
+}
+
+
+.message-sources strong {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.message-sources ul {
+    list-style-type: disc;
+    padding-left: 20px;
+    margin: 0;
+}
+
+.message-sources li {
+    cursor: help; /* Indicate that it's hoverable for more info */
+}
+
+.chat-input-form {
+    display: flex;
+    padding: 15px;
+    border-top: 1px solid #ccc;
+    background-color: #fff;
+}
+
+.chat-input-form input {
+    flex-grow: 1;
+    padding: 10px 15px;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    margin-right: 10px;
+    font-size: 1em;
+}
+
+.chat-input-form input:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+.chat-input-form button {
+    padding: 10px 20px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: background-color 0.2s ease;
+}
+
+.chat-input-form button:hover {
+    background-color: #0056b3;
+}
+
+.chat-input-form button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+.loading-indicator,
+.error-indicator {
+    text-align: center;
+    padding: 10px;
+    font-style: italic;
+}
+
+.loading-indicator {
+    color: #777;
+}
+
+.error-indicator {
+    color: red;
+    font-weight: bold;
+    padding: 10px;
+    margin: 10px 20px;
+    border: 1px solid red;
+    border-radius: 5px;
+    background-color: #ffebee;
+}

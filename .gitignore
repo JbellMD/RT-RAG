@@ -18,7 +18,18 @@ env/
 .idea/
 
 # FAISS index
-faiss_index/
+vectorstore/
 
 # Log files
 *.log
+
+# Node.js / React frontend (frontend-react)
+frontend-react/node_modules/
+frontend-react/build/
+frontend-react/.env.local
+frontend-react/.env.development.local
+frontend-react/.env.test.local
+frontend-react/.env.production.local
+
+# macOS
+.DS_Store
