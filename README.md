@@ -85,7 +85,7 @@ RT-RAG/
 └── setup.py            # Setup script for packaging
 ```
 
-For more details, see the [Project Structure section in the documentation](./docs/project_structure.md) (once created).
+For more details, see the [Project Structure section in the documentation](./docs/project_structure.md)
 
 ## Installation
 
@@ -98,7 +98,7 @@ For more details, see the [Project Structure section in the documentation](./doc
 ### Cloning the Repository
 
 ```bash
-git clone https://github.com/JbellMD/RT-RAG.git # Replace with your repo URL
+git clone https://github.com/JbellMD/RT-RAG.git 
 cd RT-RAG
 ```
 
@@ -266,11 +266,11 @@ If you use this project in your research or work, please consider citing it:
   year = {2024},
   publisher = {GitHub},
   journal = {GitHub repository},
-  howpublished = {\url{https://github.com/JbellMD/RT-RAG}} # Replace with your repo URL
+  howpublished = {\url{https://github.com/JbellMD/RT-RAG}} 
 }
 ```
 
 ## Contact and Support
 
-*   If you have questions, encounter issues, or want to contribute, please open an issue on the [GitHub Issues page](https://github.com/JbellMD/RT-RAG/issues). <!-- Replace with your repo URL -->
+*   If you have questions, encounter issues, or want to contribute, please open an issue on the [GitHub Issues page](https://github.com/JbellMD/RT-RAG/issues).
 *   For other inquiries, contact [Your Name/Email] (optional).
